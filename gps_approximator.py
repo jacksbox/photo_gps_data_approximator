@@ -5,7 +5,6 @@ import pyexiv2
 from typing import List, TypedDict, Union
 from datetime import datetime
 from glob import glob
-import os
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -30,7 +29,7 @@ class Coordinates():
     long: str
 
 
-class PhotoData(TypedDict):
+class ImageData(TypedDict):
     file: str
     date: str
     datetime: datetime
@@ -41,55 +40,58 @@ def get_datetime(date: str) -> datetime:
     return datetime.strptime(date, "%Y:%m:%d %H:%M:%S")
 
 
-def find_photos(path: str, with_gps=True) -> List[PhotoData]:
-    photos = glob(path)
-    photo_data = []
-    for photo in photos:
-        image = pyexiv2.Image(photo)
-        data = image.read_exif()
-        image.close()
+def find_images(path: str, with_gps=True) -> List[ImageData]:
+    images = glob(path)
+    image_data = []
+    for image in images:
+        exivimg = pyexiv2.Image(image)
+        data = exivimg.read_exif()
+        exivimg.close()
         gps_data = (
-            {GPS_LAT_FIELD: data[GPS_LAT_FIELD], GPS_LONG_FIELD: data[GPS_LONG_FIELD]}
+            {
+                GPS_LAT_FIELD: data[GPS_LAT_FIELD],
+                GPS_LONG_FIELD: data[GPS_LONG_FIELD]
+            }
             if GPS_LAT_FIELD in data and GPS_LONG_FIELD in data
             else None
         )
         if gps_data and GPS_ALT_FIELD in data:
             gps_data[GPS_ALT_FIELD] = data[GPS_ALT_FIELD]
         if (not with_gps and not gps_data) or (with_gps and gps_data):
-            photo_data.append({
-                "file": photo,
+            image_data.append({
+                "file": image,
                 "date": data[DATE_FIELD],
                 "datetime": get_datetime(data[DATE_FIELD]),
                 "gps": gps_data
             })
 
-    return photo_data
+    return image_data
 
 
 # bindary search
 def find_nearest(
-    photo, photos_with_gps: List[PhotoData]
-) -> PhotoData:
-    min_index, max_index = 0, len(photos_with_gps) - 1
+    image, images_with_gps: List[ImageData]
+) -> ImageData:
+    min_index, max_index = 0, len(images_with_gps) - 1
     match = None
     while match is None:
         diff = (max_index - min_index)
         if diff == 0:
-            match = photos_with_gps[max_index]
+            match = images_with_gps[max_index]
         elif diff == 1:
-            diff_max = abs(photos_with_gps[max_index]["datetime"] - photo["datetime"])
-            diff_min = abs(photos_with_gps[min_index]["datetime"] - photo["datetime"])
+            diff_max = abs(images_with_gps[max_index]["datetime"] - image["datetime"])
+            diff_min = abs(images_with_gps[min_index]["datetime"] - image["datetime"])
             match = (
-                photos_with_gps[max_index] if diff_max < diff_min
-                else photos_with_gps[min_index]
+                images_with_gps[max_index] if diff_max < diff_min
+                else images_with_gps[min_index]
             )
         else:
             mid_index = min_index + math.ceil(diff / 2)
-            if photo["date"] == photos_with_gps[mid_index]["date"]:
-                match = photos_with_gps[mid_index]
-            elif photo["date"] > photos_with_gps[mid_index]["date"]:
+            if image["date"] == images_with_gps[mid_index]["date"]:
+                match = images_with_gps[mid_index]
+            elif image["date"] > images_with_gps[mid_index]["date"]:
                 min_index = mid_index
-            elif photo["date"] < photos_with_gps[mid_index]["date"]:
+            elif image["date"] < images_with_gps[mid_index]["date"]:
                 max_index = mid_index
 
     return match
@@ -104,50 +106,70 @@ def in_bounds(date_a, date_b) -> bool:
     return True
 
 
-def add_gps_to_photo(photo: PhotoData, gps):
-    image = pyexiv2.Image(photo["file"])
-    image.modify_exif(gps)
-    image.close()
+def add_gps_to_image(image: ImageData, gps):
+    exivimg = pyexiv2.Image(image["file"])
+    exivimg.modify_exif(gps)
+    exivimg.close()
 
-def gps_approximator(base_path, process_path, dry_run = False):
-    photos_with_gps = sorted(find_photos(base_path), key=lambda x: x['date'])
-    pwg_len = len(photos_with_gps)
+
+def gps_approximator(base_path, process_path, dry_run=False):
+    images_with_gps = sorted(find_images(base_path), key=lambda x: x['date'])
+    pwg_len = len(images_with_gps)
     logger.info(f"images as base:  {pwg_len}")
     if pwg_len == 0:
-        raise Exception("No base images were found")
+        logger.error("No base images were found")
+        sys.exit(1)
 
-    photos_without_gps = find_photos(process_path, False)
-    pwog_len = len(photos_without_gps)
+    images_without_gps = find_images(process_path, False)
+    pwog_len = len(images_without_gps)
     logger.info(f"images to process:  {pwog_len}")
     logger.debug("\n")
     if pwog_len == 0:
-        raise Exception("No images to process were found")
+        logger.error("No images to process were found")
+        sys.exit(1)
 
     matched = []
     unmatched = []
-    for current_photo, index in zip(photos_without_gps, range(pwog_len)):
+    failed = []
+    for current_image, index in zip(images_without_gps, range(pwog_len)):
         logger.debug(f"# processing {index + 1}/{pwog_len}")
-        logger.debug(f"  file:  {current_photo['file']}")
-        match = find_nearest(current_photo, photos_with_gps)
-        if in_bounds(current_photo["date"], match["date"]):
+        logger.debug(f"  file:  {current_image['file']}")
+        match = find_nearest(current_image, images_with_gps)
+        if in_bounds(current_image["date"], match["date"]):
             if not dry_run:
-                add_gps_to_photo(current_photo, match["gps"])
+                try:
+                    add_gps_to_image(current_image, match["gps"])
+                except Exception:
+                    logger.exception(
+                        f"Failed to add GPS data to images {current_image['file']}"
+                    )
+                    failed.append(current_image)
 
             logger.debug(f"  match: {match['file']}")
-            matched.append((current_photo, match))
+            matched.append((current_image, match))
         else:
             logger.debug("  unmatched")
-            unmatched.append(current_photo)
+            unmatched.append(current_image)
 
     logger.debug("\n")
-    logger.info(f"matched photos: {len(matched)}")
-    logger.info(f"unmatched photos: {len(unmatched)}")
+    logger.info(f"matched images: {len(matched)}")
+    logger.info(f"unmatched images: {len(unmatched)}")
+    logger.info(f"failed images: {len(failed)}")
 
+
+USAGE = """
+Usage:
+    python3 gps_approximator.py [base_collection] [process_collection] [--dry_run]
+        base_collection: glob to determine the base collection images
+        process_collection: glob to determine the images to process
+        --dry_run (optional): do not actualy modify the images
+"""
 
 if __name__ == "__main__":
     args = sys.argv
     if len(args) < 3 or len(args) > 4:
-        raise Exception("Usage: python.py gps_approximator.py <path_base> <bath_process> <optional: --dry>")
+        logger.error(f"Error: expected 2 or 3 parameters \n{USAGE}")
+        sys.exit(1)
 
     dry_run = len(args) == 4 and args[3] == "--dry"
 
