@@ -5,6 +5,7 @@ import pyexiv2
 from typing import List, TypedDict, Union
 from datetime import datetime
 from glob import glob
+import os
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -19,7 +20,7 @@ logger.addHandler(handler)
 DATE_FIELD = "Exif.Photo.DateTimeOriginal"
 GPS_LAT_FIELD = "Exif.GPSInfo.GPSLatitude"
 GPS_LONG_FIELD = "Exif.GPSInfo.GPSLongitude"
-GPS_LONG_FIELD = "Exif.GPSInfo.GPSAltitude"
+GPS_ALT_FIELD = "Exif.GPSInfo.GPSAltitude"
 
 MAX_DIFF_DAYS = 14
 
@@ -41,17 +42,19 @@ def get_datetime(date: str) -> datetime:
 
 
 def find_photos(path: str, with_gps=True) -> List[PhotoData]:
-    photos = glob(path + "/*.jpeg")
+    photos = glob(path)
     photo_data = []
     for photo in photos:
         image = pyexiv2.Image(photo)
         data = image.read_exif()
         image.close()
         gps_data = (
-            {"lat": data[GPS_LAT_FIELD], "long": data[GPS_LONG_FIELD]}
+            {GPS_LAT_FIELD: data[GPS_LAT_FIELD], GPS_LONG_FIELD: data[GPS_LONG_FIELD]}
             if GPS_LAT_FIELD in data and GPS_LONG_FIELD in data
             else None
         )
+        if gps_data and GPS_ALT_FIELD in data:
+            gps_data[GPS_ALT_FIELD] = data[GPS_ALT_FIELD]
         if not with_gps or (with_gps and gps_data):
             photo_data.append({
                 "file": photo,
@@ -104,15 +107,19 @@ def in_bounds(date_a, date_b) -> bool:
 def add_gps_to_photo(photo: PhotoData, gps):
     pass
 
+def gps_approximator(base_path, process_path, dry_run):
+    photos_with_gps = sorted(find_photos(base_path), key=lambda x: x['date'])
+    pwg_len = len(photos_with_gps)
+    logger.info(f"images as base:  {pwg_len}")
+    if pwg_len == 0:
+        raise Exception("No base images were found")
 
-def main():
-    photos_with_gps = sorted(find_photos("base_data"), key=lambda x: x['date'])
-    logger.info(f"images as base:  {len(photos_with_gps)}")
-
-    photos_without_gps = find_photos("process_data", False)
+    photos_without_gps = find_photos(process_path, False)
     pwog_len = len(photos_without_gps)
     logger.info(f"images to process:  {pwog_len}")
     logger.debug("\n")
+    if pwog_len == 0:
+        raise Exception("No images to process were found")
 
     matched = []
     unmatched = []
@@ -121,7 +128,8 @@ def main():
         logger.debug(f"  file:  {current_photo['file']}")
         match = find_nearest(current_photo, photos_with_gps)
         if in_bounds(current_photo["date"], match["date"]):
-            add_gps_to_photo(current_photo, match["gps"])
+            if not dry_run:
+                add_gps_to_photo(current_photo, match["gps"])
 
             logger.debug(f"  match: {match['file']}")
             matched.append((current_photo, match))
@@ -133,5 +141,14 @@ def main():
     logger.info(f"matched photos: {len(matched)}")
     logger.info(f"unmatched photos: {len(unmatched)}")
 
+
+def main():
+    args = sys.argv
+    if len(args) < 3 or len(args) > 4:
+        raise Exception("Usage: python.poy gps_approximator.py <path_base> <bath_process> <optional: --dry>")
+
+    dry_run = len(args) == 4 and args[3] == "--dry"
+
+    gps_approximator(args[1], args[2], dry_run)
 
 main()
