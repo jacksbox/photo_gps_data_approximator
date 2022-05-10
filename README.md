@@ -17,15 +17,11 @@ How it works:
 ## usage
 
 ```
-python gps_approximator.py <base_collection_glob> <process_collection_glob> <optional: --dry>
+python3 gps_approximator.py [base_collection] [process_collection] [--dry_run]
+        base_collection: glob to determine the base collection images
+        process_collection: glob to determine the images to process
+        --dry_run (optional): do not actualy modify the images, just show matches
 ```
-
-`base_collection_glob`: defines the images which should be used as base to approximate gps positions.
-This images need gps exif data.
-
-`process_collection_glob`: images for which the gps exif data should be approximated (based on the base_data)
-
-`--dry`: will enable dry run mode in which the process_images are not updated.
 
 ### examples
 
