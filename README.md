@@ -26,7 +26,7 @@ python3 gps_approximator.py [base_collection] [process_collection] [--dry_run]
 ### examples
 
 ```
-python gps_approximator.py "base_data/*.jpeg" "process_data/*.jpeg" --dry
+python gps_approximator.py "base_data/*.jpeg" "process_data/*.jpeg"
 ```
 
 Dryrun
