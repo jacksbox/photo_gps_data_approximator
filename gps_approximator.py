@@ -142,13 +142,11 @@ def gps_approximator(base_path, process_path, dry_run):
     logger.info(f"unmatched photos: {len(unmatched)}")
 
 
-def main():
+if __name__ == "__main__":
     args = sys.argv
     if len(args) < 3 or len(args) > 4:
-        raise Exception("Usage: python.poy gps_approximator.py <path_base> <bath_process> <optional: --dry>")
+        raise Exception("Usage: python.py gps_approximator.py <path_base> <bath_process> <optional: --dry>")
 
     dry_run = len(args) == 4 and args[3] == "--dry"
 
     gps_approximator(args[1], args[2], dry_run)
-
-main()
