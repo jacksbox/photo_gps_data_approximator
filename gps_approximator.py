@@ -55,7 +55,7 @@ def find_photos(path: str, with_gps=True) -> List[PhotoData]:
         )
         if gps_data and GPS_ALT_FIELD in data:
             gps_data[GPS_ALT_FIELD] = data[GPS_ALT_FIELD]
-        if not with_gps or (with_gps and gps_data):
+        if (not with_gps and not gps_data) or (with_gps and gps_data):
             photo_data.append({
                 "file": photo,
                 "date": data[DATE_FIELD],
@@ -105,9 +105,11 @@ def in_bounds(date_a, date_b) -> bool:
 
 
 def add_gps_to_photo(photo: PhotoData, gps):
-    pass
+    image = pyexiv2.Image(photo["file"])
+    image.modify_exif(gps)
+    image.close()
 
-def gps_approximator(base_path, process_path, dry_run):
+def gps_approximator(base_path, process_path, dry_run = False):
     photos_with_gps = sorted(find_photos(base_path), key=lambda x: x['date'])
     pwg_len = len(photos_with_gps)
     logger.info(f"images as base:  {pwg_len}")
